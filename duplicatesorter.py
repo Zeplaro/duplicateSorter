@@ -142,6 +142,8 @@ class MainUI(QtWidgets.QDialog):
         self.process_button.clicked.connect(self.process)
 
     def populate_view(self, index):
+        checked_ext = [x.text() for x in self.extension_btns if x.isChecked()]
+        checked_ignore = [x.text() for x in self.ignore_btns if x.isChecked()]
         self.view.clear()
         self.data = {}
         self.root_path = ''
@@ -171,6 +173,12 @@ class MainUI(QtWidgets.QDialog):
                 break
             self.type_label.setText('File types : {}'.format(self.file_extensions))
         self.populate_extensions()
+        for i in self.extension_btns:
+            if i.text() in checked_ext:
+                i.setCheckState(2)
+        for i in self.ignore_btns:
+            if i.text() in checked_ignore:
+                i.setCheckState(2)
         self.highlight()
 
     def populate_extensions(self):
@@ -272,20 +280,32 @@ class MainUI(QtWidgets.QDialog):
         new_root = os.path.join(self.root_path, subfolder)
         if not os.path.exists(new_root):
             os.makedirs(new_root)
-        self.progress.setMaximum(len(self.selected))
-        self.progress.setValue(0)
-        count = 0
-        for file in self.selected:
-            self.progress.setValue(count)
+        self.progress.setMaximum(len(self.selected)-1)
+        for i, file in enumerate(self.selected):
             new_path = os.path.join(new_root, file)
             shutil.move(self.selected[file]['full_path'], new_path)
-            count += 1
+            self.progress.setValue(i)
 
     def delete_files(self):
         print('Deleting files')
+        self.progress.setMaximum(len(self.selected)-1)
+        for i, file in enumerate(self.selected):
+            path = self.selected[file]['full_path']
+            if os.path.exists(path):
+                os.remove(path)
+            self.progress.setValue(i)
 
     def copy_files(self):
         print('Copying files')
+        subfolder = self.move_line.text()
+        new_root = os.path.join(self.root_path, subfolder)
+        if not os.path.exists(new_root):
+            os.makedirs(new_root)
+        self.progress.setMaximum(len(self.selected)-1)
+        for i, file in enumerate(self.selected):
+            new_path = os.path.join(new_root, file)
+            shutil.copyfile(self.selected[file]['full_path'], new_path)
+            self.progress.setValue(i)
 
 
 def test():
