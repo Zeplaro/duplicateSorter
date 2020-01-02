@@ -1,8 +1,11 @@
 from PyQt5 import QtWidgets, QtCore, QtGui
 import sys
-import os
+from os import path as ospath
+from pathlib import Path
+from shutil import copyfile
+import subprocess
 from functools import partial
-import shutil
+from time import time
 
 
 def launch_ui():
@@ -17,13 +20,15 @@ class MainUI(QtWidgets.QDialog):
         super().__init__()
         self.data = {}
         self.selected = []
-        self.root_path = ''
+        self.folder_path = None
         self.extension_btns = []
         self.ignore_btns = []
         self.file_extensions = set()
 
         self.ui_layout()
         self.ui_connections()
+
+        self.set_root_dir()
 
     def ui_layout(self):
         main_layout = QtWidgets.QVBoxLayout()
@@ -33,7 +38,11 @@ class MainUI(QtWidgets.QDialog):
 
         browse_layout = QtWidgets.QHBoxLayout()
         main_layout.addLayout(browse_layout)
-        self.browse_line = QtWidgets.QLineEdit('D:/Robin/Pictures/Photo/a trier/2019')
+        self.parent_btn = QtWidgets.QToolButton()
+        browse_layout.addWidget(self.parent_btn)
+        self.parent_btn.setArrowType(QtCore.Qt.LeftArrow)
+        self.root_path = Path(f"{ospath.expanduser('~')}/Pictures")
+        self.browse_line = QtWidgets.QLineEdit(str(self.root_path))
         browse_layout.addWidget(self.browse_line)
         self.browse_button = QtWidgets.QPushButton('Browse')
         browse_layout.addWidget(self.browse_button)
@@ -45,9 +54,7 @@ class MainUI(QtWidgets.QDialog):
         folder_model = QtWidgets.QFileSystemModel()
         folder_model.setReadOnly(True)
         folder_model.setFilter(QtCore.QDir.Dirs | QtCore.QDir.NoDotAndDotDot)
-        folder_model.setRootPath(self.browse_line.text())
         self.folder_tree.setModel(folder_model)
-        self.folder_tree.setRootIndex(folder_model.index(self.browse_line.text()))
         self.folder_tree.setAlternatingRowColors(True)
         self.folder_tree.setAnimated(False)
         self.folder_tree.setIndentation(20)
@@ -57,21 +64,23 @@ class MainUI(QtWidgets.QDialog):
         self.folder_tree.setColumnHidden(3, True)
         self.folder_tree.setFixedWidth(300)
         self.folder_tree.setColumnWidth(0, 200)
+        self.folder_tree.sortByColumn(0, QtCore.Qt.AscendingOrder)
 
         self.view = QtWidgets.QTreeWidget()
         tree_view_layout.addWidget(self.view)
         self.view.setAlternatingRowColors(True)
         self.view.setSortingEnabled(True)
         self.view.setSelectionMode(QtWidgets.QAbstractItemView.ExtendedSelection)
-        self.view.setColumnCount(3)
-        self.view.setHeaderLabels(('Name', 'Type', 'Size'))
+        self.view.setColumnCount(4)
+        self.view.setHeaderLabels(('Name', 'Type', 'Size', ''))
         self.view.setColumnWidth(0, 400)
-        self.view.setIndentation(0)
+        self.view.setIndentation(4)
+        self.view.sortByColumn(0, QtCore.Qt.AscendingOrder)
 
         tools_layout = QtWidgets.QHBoxLayout()
         main_layout.addLayout(tools_layout)
 
-        extension_box = QtWidgets.QGroupBox('Extension')
+        extension_box = QtWidgets.QGroupBox('Extensions')
         tools_layout.addWidget(extension_box)
         self.extension_layout = QtWidgets.QVBoxLayout()
         extension_box.setLayout(self.extension_layout)
@@ -132,6 +141,7 @@ class MainUI(QtWidgets.QDialog):
 
     def ui_connections(self):
         self.folder_tree.clicked.connect(self.populate_view)
+        self.folder_tree.doubleClicked.connect(self.set_children_folder)
         self.browse_button.clicked.connect(self.browse)
         self.browse_line.editingFinished.connect(self.set_root_dir)
         self.view.doubleClicked.connect(self.open_path)
@@ -140,38 +150,41 @@ class MainUI(QtWidgets.QDialog):
         self.no_ignore_button.clicked.connect(partial(self.check_ignore, 0))
         self.all_ignore_button.clicked.connect(partial(self.check_ignore, 2))
         self.process_button.clicked.connect(self.process)
+        self.parent_btn.clicked.connect(self.set_parent_folder)
 
-    def populate_view(self, index):
+    def populate_view(self, index=None):
+        print("Populating view")
         checked_ext = [x.text() for x in self.extension_btns if x.isChecked()]
         checked_ignore = [x.text() for x in self.ignore_btns if x.isChecked()]
         self.view.clear()
         self.data = {}
-        self.root_path = ''
         if index:
-            path = self.folder_tree.model().filePath(index)
-            self.file_extensions = set()
-            for root, dirs, files in os.walk(path):
-                self.total_label.setText('Total files : {}'.format(len(files)))
-                root = root.replace('\\', '/')
-                self.root_path = root
-                for file in files:
-                    file_splitted = file.lower().split('.')
-                    full_path = os.path.join(root, file)
-                    size = round(os.path.getsize(full_path)/1000000, 2)
-                    item = QtWidgets.QTreeWidgetItem()
-                    self.data[file.lower()] = {'name': file_splitted[0],
-                                               'ext': file_splitted[-1],
-                                               'item': item,
-                                               'full_path': full_path,
-                                               'size': size,
-                                               }
-                    self.file_extensions.add(file_splitted[-1])
-                    item.setText(0, file)
-                    item.setText(1, file_splitted[-1])
-                    item.setText(2, str(size))
-                    self.view.addTopLevelItem(item)
-                break
-            self.type_label.setText('File types : {}'.format(self.file_extensions))
+            self.folder_path = Path(self.folder_tree.model().filePath(index))
+        else:
+            self.folder_path = self.root_path
+        self.file_extensions = {}
+        num_files = 0
+        for file in self.folder_path.glob('*.*'):
+            item = QtWidgets.QTreeWidgetItem()
+            size = round(ospath.getsize(str(file)) / (1024 * 1024), 2)
+            self.data[file.name] = {'name': file.stem.lower(),
+                                    'ext': file.suffix,
+                                    'item': item,
+                                    'full_path': str(file),
+                                    'size': size,
+                                    }
+            self.file_extensions[file.suffix] = self.file_extensions.get(file.suffix, 0) + 1
+            item.setText(0, file.name)
+            item.setText(1, file.suffix)
+            item.setText(2, str(size)+' MB')
+            item.setTextAlignment(2, QtCore.Qt.AlignRight)
+            self.view.addTopLevelItem(item)
+            num_files += 1
+        self.total_label.setText(f'Total files : {num_files}')
+        ext_count_string = ''
+        for i, (ext, num) in enumerate(self.file_extensions.items()):
+            ext_count_string += f'{ext} :    {num}\n                 '
+        self.type_label.setText(f'File types : {ext_count_string}')
         self.populate_extensions()
         for i in self.extension_btns:
             if i.text() in checked_ext:
@@ -204,6 +217,15 @@ class MainUI(QtWidgets.QDialog):
             ignore_btn.stateChanged.connect(self.highlight)
             ignore_btn.stateChanged.connect(partial(self.lock_extension, ext_btn))
 
+    def set_parent_folder(self):
+        self.browse_line.setText(str(self.root_path.parent))
+        self.set_root_dir()
+
+    def set_children_folder(self, index):
+        if index:
+            self.browse_line.setText(self.folder_tree.model().filePath(index))
+            self.set_root_dir()
+
     def check_extensions(self, state):
         for ext in self.extension_btns:
             ext.setCheckState(state)
@@ -228,17 +250,18 @@ class MainUI(QtWidgets.QDialog):
     def set_root_dir(self):
         self.browse_line.setText(self.browse_line.text().replace('\\', '/'))
         path = self.browse_line.text()
-        if os.path.exists:
+        self.root_path = Path(path)
+        if self.root_path.exists():
             model = self.folder_tree.model()
             model.setRootPath(path)
             self.folder_tree.setRootIndex(model.index(path))
+        self.populate_view()
 
     def highlight(self):
         self.selected = {}
         for file in self.data:
-            self.data[file]['item'].setBackground(0, QtGui.QColor(1, 1, 1, 1))
-            self.data[file]['item'].setBackground(1, QtGui.QColor(1, 1, 1, 1))
-            self.data[file]['item'].setBackground(2, QtGui.QColor(1, 1, 1, 1))
+            for i in range(4):
+                self.data[file]['item'].setBackground(i, QtGui.QColor(1, 1, 1, 1))
         ignored_extensions = [x.text() for x in self.ignore_btns if x.isChecked()]
         checked_extensions = [x.text() for x in self.extension_btns if x.isChecked()]
         new_data = {}
@@ -250,66 +273,66 @@ class MainUI(QtWidgets.QDialog):
         for file in new_data:
             if file_names.count(new_data[file]['name']) > 1:
                 if new_data[file]['ext'] in checked_extensions:
-                    new_data[file]['item'].setBackground(0, QtGui.QColor(255, 0, 0, 50))
-                    new_data[file]['item'].setBackground(1, QtGui.QColor(255, 0, 0, 50))
-                    new_data[file]['item'].setBackground(2, QtGui.QColor(255, 0, 0, 50))
+                    for i in range(4):
+                        new_data[file]['item'].setBackground(i, QtGui.QColor(255, 0, 0, 50))
                     self.selected[file] = new_data[file]
                     count += 1
-        self.selected_label.setText('Selected files : {}'.format(count))
+        self.selected_label.setText(f'Selected files : {count}')
 
-    def open_path(self):
+    def open_path(self, index):
         print('Opening in windows exporer')
-        os.startfile(self.root_path)
+        item = self.view.model().data(index)
+        subprocess.Popen(f'explorer /select,"{self.data[item]["full_path"]}"')
 
     def process(self):
+        if not self.selected:
+            print("Nothing to process.")
+            return
         print('Processing')
-        indexes = self.folder_tree.selectedIndexes()
-        if indexes:
-            action = self.action_button_group.checkedButton().text()
-            if action == 'Move':
-                self.move_files()
-            elif action == 'Delete':
-                self.delete_files()
-            else:
-                self.copy_files()
-            self.populate_view(indexes[0])
+        current_time = time()
+        action = self.action_button_group.checkedButton().text()
+        if action == 'Move':
+            self.move_files()
+        elif action == 'Delete':
+            self.delete_files()
+        else:
+            self.copy_files()
+        self.populate_view(self.folder_tree.currentIndex())
+        print(f"Process completed in : {round(time()-current_time, 3)}sec")
 
     def move_files(self):
         print('Moving files')
         subfolder = self.move_line.text()
-        new_root = os.path.join(self.root_path, subfolder)
-        if not os.path.exists(new_root):
-            os.makedirs(new_root)
-        self.progress.setMaximum(len(self.selected)-1)
+        new_root = self.folder_path / subfolder
+        if not new_root.exists():
+            new_root.mkdir()
+        self.progress.setMaximum(len(self.selected))
         for i, file in enumerate(self.selected):
-            new_path = os.path.join(new_root, file)
-            shutil.move(self.selected[file]['full_path'], new_path)
-            self.progress.setValue(i)
+            path = self.folder_path / file
+            path.replace(new_root / file)
+            self.progress.setValue(i+1)
 
     def delete_files(self):
         print('Deleting files')
-        self.progress.setMaximum(len(self.selected)-1)
+        self.progress.setMaximum(len(self.selected))
         for i, file in enumerate(self.selected):
-            path = self.selected[file]['full_path']
-            if os.path.exists(path):
-                os.remove(path)
-            self.progress.setValue(i)
+            path = self.folder_path / file
+            if path.exists():
+                path.unlink()
+            self.progress.setValue(i+1)
 
     def copy_files(self):
         print('Copying files')
         subfolder = self.move_line.text()
-        new_root = os.path.join(self.root_path, subfolder)
-        if not os.path.exists(new_root):
-            os.makedirs(new_root)
-        self.progress.setMaximum(len(self.selected)-1)
+        new_root = self.folder_path / subfolder
+        if not new_root.exists():
+            new_root.mkdir()
+        self.progress.setMaximum(len(self.selected))
         for i, file in enumerate(self.selected):
-            new_path = os.path.join(new_root, file)
-            shutil.copyfile(self.selected[file]['full_path'], new_path)
-            self.progress.setValue(i)
-
-
-def test():
-    print('TEST')
+            new_path = new_root / file
+            path = self.folder_path / file
+            copyfile(path, new_path)
+            self.progress.setValue(i+1)
 
 
 if __name__ == '__main__':
