@@ -153,7 +153,6 @@ class MainUI(QtWidgets.QDialog):
         self.parent_btn.clicked.connect(self.set_parent_folder)
 
     def populate_view(self, index=None):
-        print("Populating view")
         checked_ext = [x.text() for x in self.extension_btns if x.isChecked()]
         checked_ignore = [x.text() for x in self.ignore_btns if x.isChecked()]
         self.view.clear()
@@ -314,6 +313,12 @@ class MainUI(QtWidgets.QDialog):
 
     def delete_files(self):
         print('Deleting files')
+        result = QtWidgets.QMessageBox.warning(self, "Delete warning", "Are you sure you want to permanently delete "
+                                                                       "the selected files ?",
+                                               QtWidgets.QMessageBox.Yes, QtWidgets.QMessageBox.Cancel)
+        if result != QtWidgets.QMessageBox.Yes:
+            print("Canceled.")
+            return
         self.progress.setMaximum(len(self.selected))
         for i, file in enumerate(self.selected):
             path = self.folder_path / file
