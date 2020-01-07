@@ -15,7 +15,7 @@ def launch_ui():
     sys.exit(app.exec_())
 
 
-class MainUI(QtWidgets.QDialog):
+class MainUI(QtWidgets.QMainWindow):
     def __init__(self):
         super().__init__()
         self.data = {}
@@ -30,8 +30,10 @@ class MainUI(QtWidgets.QDialog):
         self.set_root_dir()
 
     def ui_layout(self):
+        main_widget = QtWidgets.QWidget()
+        self.setCentralWidget(main_widget)
         main_layout = QtWidgets.QVBoxLayout()
-        self.setLayout(main_layout)
+        main_widget.setLayout(main_layout)
         self.setGeometry(0, 0, 1500, 800)
         self.setWindowTitle('Duplicate Sorter')
 
@@ -41,7 +43,6 @@ class MainUI(QtWidgets.QDialog):
         browse_layout.addWidget(self.parent_btn)
         self.parent_btn.setArrowType(QtCore.Qt.LeftArrow)
         self.root_path = Path(f"{ospath.expanduser('~')}/Pictures")
-        self.root_path = Path(f"D:/Robin/Pictures/Photo")
         self.browse_line = QtWidgets.QLineEdit(str(self.root_path))
         browse_layout.addWidget(self.browse_line)
         self.subfolders_check = QtWidgets.QCheckBox('Include subfolders')
