@@ -8,11 +8,37 @@ from functools import partial
 from time import time
 
 
+qt_refresh = QtWidgets.QApplication.processEvents
+
+
 def launch_ui():
     app = QtWidgets.QApplication(sys.argv)
     ui = MainUI()
     ui.show()
     sys.exit(app.exec_())
+
+
+def dark_palette():
+    QtWidgets.QApplication.setStyle("Fusion")
+    palette = QtGui.QPalette()
+    palette.setColor(QtGui.QPalette.Base, QtGui.QColor(43, 43, 43))
+    palette.setColor(QtGui.QPalette.Window, QtGui.QColor(60, 63, 65))
+    palette.setColor(QtGui.QPalette.WindowText, QtGui.QColor(190, 190, 190))
+    palette.setColor(QtGui.QPalette.AlternateBase, QtGui.QColor(50, 53, 55))
+    palette.setColor(QtGui.QPalette.Text, QtGui.QColor(210, 210, 210))
+    palette.setColor(QtGui.QPalette.Button, QtGui.QColor(60, 63, 65))
+    palette.setColor(QtGui.QPalette.ButtonText, QtGui.QColor(200, 200, 200))
+    palette.setColor(QtGui.QPalette.Highlight, QtGui.QColor(80, 113, 135))
+    palette.setColor(QtGui.QPalette.Disabled, QtGui.QPalette.Highlight, QtGui.QColor(80, 80, 80))
+    palette.setColor(QtGui.QPalette.HighlightedText, QtCore.Qt.white)
+    return palette
+
+
+def default_palette():
+    QtWidgets.QApplication.setStyle("Fusion")
+    palette = QtGui.QPalette()
+    palette.setColor(QtGui.QPalette.AlternateBase, QtGui.QColor(245, 245, 245))
+    return palette
 
 
 class MainUI(QtWidgets.QMainWindow):
@@ -26,6 +52,7 @@ class MainUI(QtWidgets.QMainWindow):
 
         self.ui_layout()
         self.ui_connections()
+        self.setPalette(default_palette())
 
         self.set_root_dir()
 
@@ -36,6 +63,11 @@ class MainUI(QtWidgets.QMainWindow):
         main_widget.setLayout(main_layout)
         self.setGeometry(0, 0, 1500, 800)
         self.setWindowTitle('Duplicate Sorter')
+        menu_bar = QtWidgets.QMenuBar()
+        self.setMenuBar(menu_bar)
+        view_menu = menu_bar.addMenu('View')
+        view_menu.addAction('Set default style', partial(self.setPalette, default_palette()))
+        view_menu.addAction('Set dark style', partial(self.setPalette, dark_palette()))
 
         browse_layout = QtWidgets.QHBoxLayout()
         main_layout.addLayout(browse_layout)
@@ -74,8 +106,8 @@ class MainUI(QtWidgets.QMainWindow):
         self.view.setAlternatingRowColors(True)
         self.view.setSortingEnabled(True)
         self.view.setSelectionMode(QtWidgets.QAbstractItemView.ExtendedSelection)
-        self.view.setColumnCount(4)
-        self.view.setHeaderLabels(('Name', 'Type', 'Size', ''))
+        self.view.setColumnCount(3)
+        self.view.setHeaderLabels(('Name', 'Type', 'Size'))
         self.view.setColumnWidth(0, 400)
         self.view.setIndentation(4)
         self.view.sortByColumn(0, QtCore.Qt.AscendingOrder)
@@ -139,8 +171,8 @@ class MainUI(QtWidgets.QMainWindow):
         self.process_button.setFixedWidth(100)
         process_layout.addWidget(self.process_button)
 
-        self.progress = QtWidgets.QProgressBar()
-        main_layout.addWidget(self.progress)
+        self.process_bar = QtWidgets.QProgressBar()
+        main_layout.addWidget(self.process_bar)
 
     def ui_connections(self):
         self.folder_tree.clicked.connect(self.populate_view)
@@ -168,7 +200,17 @@ class MainUI(QtWidgets.QMainWindow):
         self.populate_view()
         QtWidgets.QApplication.restoreOverrideCursor()
 
-    def populate_view(self):
+    def progress(self):
+        prog = QtWidgets.QDialog(parent=self)
+        prog.setWindowTitle('Populating')
+        layout = QtWidgets.QVBoxLayout()
+        layout.setContentsMargins(20, 20, 20, 20)
+        prog.setLayout(layout)
+        label = QtWidgets.QLabel()
+        layout.addWidget(label)
+        return prog, label
+
+    def populate_view(self, *args):
         QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
         checked_ext = [x.text() for x in self.extension_btns if x.isChecked()]
         checked_ignore = [x.text() for x in self.ignore_btns if x.isChecked()]
@@ -182,6 +224,10 @@ class MainUI(QtWidgets.QMainWindow):
             self.folder_path = self.root_path
         self.file_extensions = {}
         num_files = 0
+        prog_dialog, prog_label = self.progress()
+        prog_label.setText('Scanning files...')
+        prog_dialog.show()
+        qt_refresh()
         if self.subfolders_check.isChecked():
             func = self.folder_path.rglob
         else:
@@ -201,6 +247,9 @@ class MainUI(QtWidgets.QMainWindow):
             item.setTextAlignment(2, QtCore.Qt.AlignRight)
             self.view.addTopLevelItem(item)
             item.path = file
+            if prog_dialog.isHidden():
+                print('STOP')
+                break
             num_files += 1
         self.total_label.setText(f'Total files : {num_files}')
         ext_count_string = ''
@@ -216,20 +265,28 @@ class MainUI(QtWidgets.QMainWindow):
             if i.text() in checked_ignore:
                 i.setCheckState(2)
         QtWidgets.QApplication.restoreOverrideCursor()
+        prog_dialog.close()
         self.highlight()
 
-    def highlight(self):
+    def highlight(self, *args):
         QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
         self.selected = {}
         ignored_extensions = tuple(x.text() for x in self.ignore_btns if x.isChecked())
         checked_extensions = tuple(x.text() for x in self.extension_btns if x.isChecked())
         new_data = {}
+        prog_dialog, prog_label = self.progress()
+        prog_label.setText('Highlighting files...')
+        prog_dialog.show()
+        qt_refresh()
         for file in self.data:
             if not self.data[file]['ext'] in ignored_extensions:
                 new_data[file] = self.data[file]
             else:
-                for i in range(4):
+                for i in range(3):
                     self.data[file]['item'].setBackground(i, QtGui.QColor(1, 1, 1, 1))
+            if prog_dialog.isHidden():
+                print('STOP')
+                return
         file_names = tuple(new_data[file]['name'] for file in new_data)
         count = 0
         count_data = {}
@@ -241,17 +298,21 @@ class MainUI(QtWidgets.QMainWindow):
             else:
                 occur = count_data[name] = file_names.count(name)
             if occur > 1 and new_data[file]['ext'] in checked_extensions:
-                for i in range(4):
-                    new_data[file]['item'].setBackground(i, QtGui.QColor(255, 0, 0, 50))
+                for i in range(3):
+                    new_data[file]['item'].setBackground(i, QtGui.QColor(255, 50, 90, 60))
                 self.selected[file] = new_data[file]
                 size += new_data[file]['size']
                 count += 1
             else:
-                for i in range(4):
+                for i in range(3):
                     self.data[file]['item'].setBackground(i, QtGui.QColor(1, 1, 1, 1))
+            if prog_dialog.isHidden():
+                print('STOP')
+                return
         disp_size = round(size, 2) if size < 1024 else round(size/1024, 2)
         self.selected_label.setText(f"Selected files : {count} ; {disp_size} {'MB' if size < 1024 else 'GB'}")
         QtWidgets.QApplication.restoreOverrideCursor()
+        prog_dialog.close()
 
     def populate_extensions(self):
         for item in self.extension_btns:
@@ -332,13 +393,13 @@ class MainUI(QtWidgets.QMainWindow):
     def move_files(self):
         print('Moving files')
         subfolder = self.move_line.text()
-        self.progress.setMaximum(len(self.selected))
+        self.process_bar.setMaximum(len(self.selected))
         for i, file in enumerate(self.selected):
             new_root = file.parent / subfolder
             if not new_root.exists():
                 new_root.mkdir()
             file.replace(new_root / file.name)
-            self.progress.setValue(i+1)
+            self.process_bar.setValue(i + 1)
 
     def delete_files(self):
         print('Deleting files')
@@ -348,23 +409,23 @@ class MainUI(QtWidgets.QMainWindow):
         if result != QtWidgets.QMessageBox.Yes:
             print("Canceled.")
             return
-        self.progress.setMaximum(len(self.selected))
+        self.process_bar.setMaximum(len(self.selected))
         for i, file in enumerate(self.selected):
             if file.exists():
                 file.unlink()
-            self.progress.setValue(i+1)
+            self.process_bar.setValue(i + 1)
 
     def copy_files(self):
         print('Copying files')
         subfolder = self.move_line.text()
-        self.progress.setMaximum(len(self.selected))
+        self.process_bar.setMaximum(len(self.selected))
         for i, file in enumerate(self.selected):
             new_root = file.parent / subfolder
             if not new_root.exists():
                 new_root.mkdir()
             new_path = new_root / file.name
             copyfile(file, new_path)
-            self.progress.setValue(i+1)
+            self.process_bar.setValue(i + 1)
 
 
 if __name__ == '__main__':
