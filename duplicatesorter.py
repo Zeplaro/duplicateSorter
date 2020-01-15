@@ -277,7 +277,6 @@ class MainUI(QtWidgets.QMainWindow):
         prog_dialog, prog_label = self.progress()
         prog_label.setText('Highlighting files...')
         prog_dialog.show()
-        qt_refresh()
         for file in self.data:
             if not self.data[file]['ext'] in ignored_extensions:
                 new_data[file] = self.data[file]
