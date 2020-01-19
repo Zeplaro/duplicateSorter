@@ -1,4 +1,5 @@
 *.bat
 *.spec
+*.pyc
 build
 dist
