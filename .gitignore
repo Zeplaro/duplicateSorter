@@ -1,1 +1,7 @@
+*.bat
+*.spec
+*.pyc
+build
+dist
+.idea
 .idea/**
