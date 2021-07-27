@@ -1,7 +1,1 @@
-*.bat
-*.spec
-*.pyc
-build
-dist
 .idea/**
-duplicatesorter.exe
