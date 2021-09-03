@@ -104,7 +104,9 @@ class MainUI(QtWidgets.QMainWindow):
 
         self.view = QtWidgets.QTreeView()
         tree_view_layout.addWidget(self.view)
-        self.view.setModel(PicModel())
+        model = PicModel()
+        self.view.setModel(model)
+        self.view.setRootIndex(model.index(model.path))
 
         bottom_widget = QtWidgets.QWidget()
         main_splitter.addWidget(bottom_widget)
@@ -220,6 +222,9 @@ class PicModel(QtWidgets.QFileSystemModel):
 
     def __init__(self):
         super(PicModel, self).__init__()
+        self.path = 'D:\Robin\Photos\plop'
+        self.setFilter(QtCore.QDir.Files)
+        self.setRootPath(self.path)
 
 
 if __name__ == '__main__':
