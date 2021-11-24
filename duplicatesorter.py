@@ -36,7 +36,11 @@ class MainUI(QtWidgets.QMainWindow):
     def __init__(self):
         super(MainUI, self).__init__()
         self.root_path = Path('C:/Users/robin/Photos/a trier')
-        self.files = FileData(get_files(self.root_path))
+        self.files = []
+        self.extensions = []
+        self.extension_states = []
+        self.ignored_states = []
+        self.selected_files = []
 
         # UI stuff
         uic.loadUi('duplicateSorter.ui', self)
@@ -50,6 +54,7 @@ class MainUI(QtWidgets.QMainWindow):
         self.subfolders_check = self.findChild(QtWidgets.QCheckBox, 'subfolders_check')
         self.browse_button = self.findChild(QtWidgets.QPushButton, 'browse_button')
 
+        # folder tree
         self.folder_tree = self.findChild(QtWidgets.QTreeView, 'folder_tree')
         self.folder_tree.setModel(QtWidgets.QFileSystemModel())
         self.folder_tree.model().setFilter(QtCore.QDir.Dirs | QtCore.QDir.NoDotAndDotDot)
@@ -61,6 +66,7 @@ class MainUI(QtWidgets.QMainWindow):
         self.folder_tree.setColumnWidth(0, 200)
         self.folder_tree.sortByColumn(0, QtCore.Qt.AscendingOrder)
 
+        # file table
         self.file_table = self.findChild(QtWidgets.QTableView, 'file_table')
         model = FileModel(self)
         self.file_table.setModel(model)
@@ -96,6 +102,7 @@ class MainUI(QtWidgets.QMainWindow):
         self.subfolders_check.stateChanged.connect(self._set_files)
         self.browse_button.clicked.connect(self.browse)
         self.folder_tree.clicked.connect(self._set_files)
+        self.folder_tree.activated.connect(self._set_files)
         self.allextension_button.clicked.connect(partial(self.all_none_buttons, 'extension', 'all'))
         self.noneextension_button.clicked.connect(partial(self.all_none_buttons, 'extension', 'none'))
         self.allignored_button.clicked.connect(partial(self.all_none_buttons, 'ignored', 'all'))
@@ -128,30 +135,55 @@ class MainUI(QtWidgets.QMainWindow):
             self._set_files()
         QtWidgets.QApplication.restoreOverrideCursor()
 
-    def set_files(self, index=None):
-        print('Setting files')
+    def set_files(self):
         QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
         file_path = Path(self.folder_tree.model().filePath(self.folder_tree.currentIndex()) or self.root_path)
-        self.files = FileData(get_files(file_path, self.subfolders_check.isChecked()))
+
+        # saves checked extensions and checked ignored to re set them latter
+        checked_extensions = [x for x, y in zip(self.extensions, self.extension_states) if y]
+        checked_ignored = [x for x, y in zip(self.extensions, self.ignored_states) if y]
+        self.files = get_files(file_path, self.subfolders_check.isChecked())
+        self.extensions = list(set(file.suffix for file in self.files))
+        # re sets the saved checked extensions and checked ignored
+        self.extension_states = [2 if x in checked_extensions else 0 for x in self.extensions]
+        self.ignored_states = [2 if x in checked_ignored else 0 for x in self.extensions]
+        self.selected_files = self.get_selected_files()
+
         self.totalfiles_label.setText(f"Total Files : {len(self.files)}")
         self.refresh_lists()
         QtWidgets.QApplication.restoreOverrideCursor()
 
+    def get_selected_files(self):
+        selected = []
+        checked_extensions = [x for x, y in zip(self.extensions, self.extension_states) if y]
+        checked_ignored = [x for x, y in zip(self.extensions, self.ignored_states) if y]
+        stems = [file.stem for file in self.files if file.suffix not in checked_ignored]
+        stems_count = {file.stem: stems.count(file.stem) for file in self.files}
+        for file in self.files:
+            if file.suffix in checked_extensions:
+                if stems_count[file.stem] > 1:
+                    selected.append(file)
+        return selected
+
     def all_none_buttons(self, type, button):
         if type == 'extension':
             if button == 'all':
-                self.files.extension_state = [2] * len(self.files)
-                self.files.ignored_state = [0] * len(self.files)
+                self.extension_states = [2] * len(self.files)
+                self.ignored_states = [0] * len(self.files)
             else:
-                self.files.extension_state = [0] * len(self.files)
+                self.extension_states = [0] * len(self.files)
         else:
             if button == 'all':
-                self.files.ignored_state = [2] * len(self.files)
-                self.files.extension_state = [0] * len(self.files)
+                self.ignored_states = [2] * len(self.files)
+                self.extension_states = [0] * len(self.files)
             else:
-                self.files.ignored_state = [0] * len(self.files)
-        self.extension_list.model().layoutChanged.emit()
-        self.ignored_list.model().layoutChanged.emit()
+                self.ignored_states = [0] * len(self.files)
+        self.selected_files = self.get_selected_files()
+        self.refresh_lists()
+
+    def set_selected_label(self):
+        size = round(sum(file.size for file in self.selected_files), 2)
+        self.selectedfiles_label.setText(f"Selected Files : {len(self.selected_files)} ~ {size} MB")
 
     def refresh_lists(self):
         QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
@@ -160,18 +192,10 @@ class MainUI(QtWidgets.QMainWindow):
         self.ignored_list.model().layoutChanged.emit()
         QtWidgets.QApplication.restoreOverrideCursor()
 
-    def refresh(self, *args, **kwargs):
+    def refresh(self):
         QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
-        print('refresh', args, kwargs)
-        try:
-            print('FILES', self.files.files)
-            print("extensiosn", self.files.extensions)
-            print("stems", self.files.stems)
-            print("stems_count", self.files.stems_count)
-        except Exception as e:
-            print(e)
         self.set_root_dir()
-        if not self.refresh_check.isChecked():
+        if not self.refresh_check.isChecked():  # force set_files if 'auto refresh' is off
             self.set_files()
         QtWidgets.QApplication.restoreOverrideCursor()
 
@@ -181,10 +205,10 @@ class FileModel(QtCore.QAbstractTableModel):
         super(FileModel, self).__init__()
         self.ui = ui
 
-    def rowCount(self, index):
+    def rowCount(self, *args):
         return len(self.ui.files)
 
-    def columnCount(self, index):
+    def columnCount(self, *args):
         return 3
 
     def data(self, index, role=QtCore.Qt.DisplayRole):
@@ -196,7 +220,10 @@ class FileModel(QtCore.QAbstractTableModel):
             elif column == 1:
                 return self.ui.files[row].suffix
             elif column == 2:
-                return self.ui.files[row].size
+                return f'{round(self.ui.files[row].size, 2)} MB'
+        elif role == QtCore.Qt.BackgroundRole:
+            if self.ui.files[index.row()] in self.ui.selected_files:
+                return QtGui.QColor(62, 118, 92)
 
     def headerData(self, column, orientation, role=QtCore.Qt.DisplayRole):
         if role == QtCore.Qt.DisplayRole:
@@ -212,86 +239,67 @@ class FileModel(QtCore.QAbstractTableModel):
         return QtCore.Qt.ItemIsEnabled
 
 
-def get_files(path, withsubfolders=False):
-    files = []
-    subfolders = []
-    for item in path.iterdir():
-        if item.is_file():
-            name = item.name
-            size = str(round(item.stat().st_size/(1024**2), 2)) + ' MB'
-            suffix = item.suffix
-            stem = item.stem
-            files.append(File(name, suffix, size, stem))
-        elif withsubfolders:
-            subfolders.append(item)
-    for item in subfolders:
-        files.extend(get_files(item, withsubfolders))
-    return files
-
-
-class FileData:
-    def __init__(self, files: list):
-        self.files = files
-        self.extensions = list(set(file.suffix for file in files))
-        self.stems = [file.stem for file in files]
-        self.stems_count = {stem: self.stems.count(stem) for stem in self.stems}
-        self.extension_state = [0] * len(files)
-        self.ignored_state = [0] * len(files)
-
-    def __len__(self):
-        return len(self.files)
-
-    def __getitem__(self, item):
-        return self.files[item]
-
-
-@dataclass
-class File:
-    name: str
-    suffix: str
-    size: str
-    stem: str
-
-    def __repr__(self):
-        return self.name
-
-
 class ExtensionModel(QtCore.QAbstractListModel):
     def __init__(self, ui, type):
         super(ExtensionModel, self).__init__()
         self.ui = ui
         self.type = type
 
-    def rowCount(self, index):
-        return len(self.ui.files.extensions)
+    def rowCount(self, *args):
+        return len(self.ui.extensions)
 
     def data(self, index, role=QtCore.Qt.DisplayRole):
         if role == QtCore.Qt.DisplayRole:
-            return self.ui.files.extensions[index.row()] or 'None'
+            return self.ui.extensions[index.row()] or 'None'
         elif role == QtCore.Qt.CheckStateRole:
             if self.type == 'extension':
-                return self.ui.files.extension_state[index.row()]
+                return self.ui.extension_states[index.row()]
             else:
-                return self.ui.files.ignored_state[index.row()]
+                return self.ui.ignored_states[index.row()]
 
     def setData(self, index, value, role=QtCore.Qt.DisplayRole):
         if role == QtCore.Qt.CheckStateRole:
             if self.type == 'extension':
                 if value == 2:
-                    self.ui.files.ignored_state[index.row()] = 0
+                    self.ui.ignored_states[index.row()] = 0
                     self.ui.ignored_list.model().dataChanged.emit(index, index)
-                self.ui.files.extension_state[index.row()] = value
+                self.ui.extension_states[index.row()] = value
             else:
                 if value == 2:
-                    self.ui.files.extension_state[index.row()] = 0
+                    self.ui.extension_states[index.row()] = 0
                     self.ui.extension_list.model().dataChanged.emit(index, index)
-                self.ui.files.ignored_state[index.row()] = value
+                self.ui.ignored_states[index.row()] = value
             self.dataChanged.emit(index, index)
+            self.ui.selected_files = self.ui.get_selected_files()
+            self.ui.file_table.model().layoutChanged.emit()
+            self.ui.set_selected_label()
             return True
         return False
 
     def flags(self, index):
         return QtCore.Qt.ItemIsEnabled | QtCore.Qt.ItemIsUserCheckable
+
+
+@dataclass
+class File:
+    name: str
+    suffix: str
+    size: float
+    stem: str
+
+
+def get_files(path, with_subfolders=False):
+    files = []
+    subfolders = []
+    for item in path.iterdir():
+        if item.is_file():
+            size = item.stat().st_size/(1024**2)
+            files.append(File(item.name, item.suffix, size, item.stem))
+        elif with_subfolders:
+            subfolders.append(item)
+    for item in subfolders:
+        files.extend(get_files(item, with_subfolders))
+    return files
 
 
 if __name__ == '__main__':
