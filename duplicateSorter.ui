@@ -6,8 +6,8 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>1083</width>
-    <height>695</height>
+    <width>1219</width>
+    <height>765</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -214,6 +214,9 @@
                <property name="text">
                 <string>Delete</string>
                </property>
+               <attribute name="buttonGroup">
+                <string notr="true">actionbuttons_group</string>
+               </attribute>
               </widget>
              </item>
              <item>
@@ -221,12 +224,28 @@
                <property name="text">
                 <string>Copy</string>
                </property>
+               <attribute name="buttonGroup">
+                <string notr="true">actionbuttons_group</string>
+               </attribute>
               </widget>
              </item>
              <item>
               <widget class="QRadioButton" name="move_radio">
                <property name="text">
                 <string>Move</string>
+               </property>
+               <property name="checked">
+                <bool>true</bool>
+               </property>
+               <attribute name="buttonGroup">
+                <string notr="true">actionbuttons_group</string>
+               </attribute>
+              </widget>
+             </item>
+             <item>
+              <widget class="QLineEdit" name="subfolder_line">
+               <property name="text">
+                <string>subfolder</string>
                </property>
               </widget>
              </item>
@@ -325,7 +344,7 @@
     <rect>
      <x>0</x>
      <y>0</y>
-     <width>1083</width>
+     <width>1219</width>
      <height>21</height>
     </rect>
    </property>
@@ -343,4 +362,7 @@
  </widget>
  <resources/>
  <connections/>
+ <buttongroups>
+  <buttongroup name="actionbuttons_group"/>
+ </buttongroups>
 </ui>

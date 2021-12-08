@@ -5,6 +5,8 @@ from PyQt5 import QtWidgets, QtCore, QtGui, uic
 from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
+from shutil import copy2, move
+from time import time
 
 
 qt_refresh = QtWidgets.QApplication.processEvents
@@ -89,8 +91,16 @@ class MainUI(QtWidgets.QMainWindow):
         self.totalfiles_label = self.findChild(QtWidgets.QLabel, 'totalfiles_label')
         self.selectedfiles_label = self.findChild(QtWidgets.QLabel, 'selectedfiles_label')
 
+        # Actions
+        self.actionbuttons_group = self.findChild(QtWidgets.QButtonGroup, 'actionbuttons_group')
+
+        # Process
         self.refresh_check = self.findChild(QtWidgets.QCheckBox, 'refresh_check')
         self.refresh_button = self.findChild(QtWidgets.QPushButton, 'refresh_button')
+        self.process_button = self.findChild(QtWidgets.QPushButton, 'process_button')
+        self.subfolder_line = self.findChild(QtWidgets.QLineEdit, 'subfolder_line')
+        self.progress_bar = self.findChild(QtWidgets.QProgressBar, 'progress_bar')
+        self.progress_bar.setValue(0)
 
         self.ui_connections()
 
@@ -109,6 +119,7 @@ class MainUI(QtWidgets.QMainWindow):
         self.noneignored_button.clicked.connect(partial(self.all_none_buttons, 'ignored', 'none'))
 
         self.refresh_button.clicked.connect(self.refresh)
+        self.process_button.clicked.connect(self.process)
 
     def back_dir(self):
         self.set_root_dir(self.root_path.parent)
@@ -190,6 +201,7 @@ class MainUI(QtWidgets.QMainWindow):
         self.file_table.model().layoutChanged.emit()
         self.extension_list.model().layoutChanged.emit()
         self.ignored_list.model().layoutChanged.emit()
+        self.set_selected_label()
         QtWidgets.QApplication.restoreOverrideCursor()
 
     def refresh(self):
@@ -198,6 +210,67 @@ class MainUI(QtWidgets.QMainWindow):
         if not self.refresh_check.isChecked():  # force set_files if 'auto refresh' is off
             self.set_files()
         QtWidgets.QApplication.restoreOverrideCursor()
+
+    def process(self):
+        selected_files = self.selected_files
+        if not selected_files:
+            print("Nothing to process.")
+            return
+        print('Processing')
+
+        QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
+        current_time = time()
+        action = self.actionbuttons_group.checkedButton().text()
+        if action == 'Delete':
+            func = self.delete_files
+        elif action == 'Copy':
+            func = self.copy_files
+        else:
+            func = self.move_files
+
+        i = 0
+        self.progress_bar.setMaximum(len(selected_files))
+        for _ in func():
+            print(_)
+            self.progress_bar.setValue(i := i+1)
+
+        QtWidgets.QApplication.restoreOverrideCursor()
+        print(f"Process completed in : {round(time()-current_time, 3)}sec")
+        self._set_files()
+
+    def delete_files(self):
+        print('Deleting files')
+        result = QtWidgets.QMessageBox.warning(self, "Delete warning", "Are you sure you want to permanently delete "
+                                                                       "the selected files ?",
+                                               QtWidgets.QMessageBox.Yes, QtWidgets.QMessageBox.Cancel)
+        if result != QtWidgets.QMessageBox.Yes:
+            print("Canceled.")
+            return
+        for file in self.selected_files:
+            file.unlink()
+            yield file
+
+    def copy_files(self):
+        print('Copying files')
+        subfolder = self.subfolder_line.text()
+        for file in self.selected_files:
+            subfolder_path = file.path_item.parent / subfolder
+            if not subfolder_path.exists():
+                subfolder_path.mkdir()
+            new_path = file.path_item.parent / subfolder_path / file.path_item.name
+            copy2(str(file.path_item), str(new_path))
+            yield file
+
+    def move_files(self):
+        print('Moving files')
+        subfolder = self.subfolder_line.text()
+        for file in self.selected_files:
+            subfolder_path = file.path_item.parent / subfolder
+            if not subfolder_path.exists():
+                subfolder_path.mkdir()
+            new_path = file.path_item.parent / subfolder_path / file.path_item.name
+            move(str(file.path_item), str(new_path))
+            yield file
 
 
 class FileModel(QtCore.QAbstractTableModel):
@@ -286,6 +359,7 @@ class File:
     suffix: str
     size: float
     stem: str
+    path_item: Path
 
 
 def get_files(path, with_subfolders=False):
@@ -294,7 +368,7 @@ def get_files(path, with_subfolders=False):
     for item in path.iterdir():
         if item.is_file():
             size = item.stat().st_size/(1024**2)
-            files.append(File(item.name, item.suffix, size, item.stem))
+            files.append(File(item.name, item.suffix, size, item.stem, item))
         elif with_subfolders:
             subfolders.append(item)
     for item in subfolders:
