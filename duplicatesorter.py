@@ -193,8 +193,8 @@ class MainUI(QtWidgets.QMainWindow):
         self.refresh_lists()
 
     def set_selected_label(self):
-        size = round(sum(file.size for file in self.selected_files), 2)
-        self.selectedfiles_label.setText(f"Selected Files : {len(self.selected_files)} ~ {size} MB")
+        size = sum(file.size for file in self.selected_files)
+        self.selectedfiles_label.setText(f"Selected Files : {len(self.selected_files)} ~ {size:.2f} MB")
 
     def refresh_lists(self):
         QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
@@ -235,7 +235,7 @@ class MainUI(QtWidgets.QMainWindow):
             self.progress_bar.setValue(i := i+1)
 
         QtWidgets.QApplication.restoreOverrideCursor()
-        print(f"Process completed in : {round(time()-current_time, 3)}sec")
+        print(f"Process completed in : {time()-current_time:.3f}sec")  # :.3f replaces round(size, 2)
         self._set_files()
 
     def delete_files(self):
@@ -293,7 +293,7 @@ class FileModel(QtCore.QAbstractTableModel):
             elif column == 1:
                 return self.ui.files[row].suffix
             elif column == 2:
-                return f'{round(self.ui.files[row].size, 2)} MB'
+                return f'{self.ui.files[row].size:.2f} MB'  # :.2f replaces round(size, 2)
         elif role == QtCore.Qt.BackgroundRole:
             if self.ui.files[index.row()] in self.ui.selected_files:
                 return QtGui.QColor(62, 118, 92)
