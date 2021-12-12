@@ -6,8 +6,8 @@ from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
 from shutil import copy2, move
-from time import time
-
+from time import perf_counter
+from subprocess import Popen
 
 qt_refresh = QtWidgets.QApplication.processEvents
 
@@ -37,12 +37,12 @@ def launch_ui():
 class MainUI(QtWidgets.QMainWindow):
     def __init__(self):
         super(MainUI, self).__init__()
-        self.root_path = Path('C:/Users/robin/Photos/a trier')
-        self.files = []
-        self.extensions = []
-        self.extension_states = []
-        self.ignored_states = []
-        self.selected_files = []
+        self.root_path: Path = Path('C:/Users/robin/Photos/a trier')
+        self.files: [File, ] = []  # list of all files listed in the file_table view
+        self.extensions: [str, ] = []  # list of all extensions listed in the extension_list and ignored_list views
+        self.extension_states: [bool, ] = []  # list of state per extensions
+        self.ignored_states: [bool, ] = []  # list of state per ignored
+        self.selected_files: [File, ] = []  # list of selected/highlighted files from file_table view
 
         # UI stuff
         uic.loadUi('duplicateSorter.ui', self)
@@ -112,7 +112,9 @@ class MainUI(QtWidgets.QMainWindow):
         self.subfolders_check.stateChanged.connect(self._set_files)
         self.browse_button.clicked.connect(self.browse)
         self.folder_tree.clicked.connect(self._set_files)
+        self.folder_tree.doubleClicked.connect(self.folder_tree_double_clicked)
         self.folder_tree.activated.connect(self._set_files)
+        self.file_table.doubleClicked.connect(self.open_file_in_explorer)
         self.allextension_button.clicked.connect(partial(self.all_none_buttons, 'extension', 'all'))
         self.noneextension_button.clicked.connect(partial(self.all_none_buttons, 'extension', 'none'))
         self.allignored_button.clicked.connect(partial(self.all_none_buttons, 'ignored', 'all'))
@@ -133,7 +135,7 @@ class MainUI(QtWidgets.QMainWindow):
         if self.refresh_check.isChecked():
             self.set_files()
 
-    def set_root_dir(self, path=None):
+    def set_root_dir(self, path: Path = None):
         QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
         if path:
             self.root_path = path
@@ -147,7 +149,9 @@ class MainUI(QtWidgets.QMainWindow):
         QtWidgets.QApplication.restoreOverrideCursor()
 
     def set_files(self):
+        self.statusBar().showMessage("Updating file list...")
         QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
+        start_time = perf_counter()
         file_path = Path(self.folder_tree.model().filePath(self.folder_tree.currentIndex()) or self.root_path)
 
         # saves checked extensions and checked ignored to re set them latter
@@ -162,9 +166,13 @@ class MainUI(QtWidgets.QMainWindow):
 
         self.totalfiles_label.setText(f"Total Files : {len(self.files)}")
         self.refresh_lists()
+        self.statusBar().showMessage(f"File list updated in : {perf_counter()-start_time:.3f}sec")
         QtWidgets.QApplication.restoreOverrideCursor()
 
     def get_selected_files(self):
+        QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
+        start_time = perf_counter()
+
         selected = []
         checked_extensions = [x for x, y in zip(self.extensions, self.extension_states) if y]
         checked_ignored = [x for x, y in zip(self.extensions, self.ignored_states) if y]
@@ -174,9 +182,21 @@ class MainUI(QtWidgets.QMainWindow):
             if file.suffix in checked_extensions:
                 if stems_count[file.stem] > 1:
                     selected.append(file)
+
+        QtWidgets.QApplication.restoreOverrideCursor()
+        self.statusBar().showMessage(f"Updated selected files in : {perf_counter()-start_time:.3f}sec")
         return selected
 
-    def all_none_buttons(self, type, button):
+    def folder_tree_double_clicked(self, index):
+        folder = Path(self.folder_tree.model().filePath(index))
+        self.set_root_dir(folder)
+
+    def open_file_in_explorer(self, index):
+        self.statusBar().showMessage('Opening file in explorer...')
+        file = self.files[index.row()]
+        Popen(f'explorer /select,"{file.path_item}"')
+
+    def all_none_buttons(self, type: str, button: str):
         if type == 'extension':
             if button == 'all':
                 self.extension_states = [2] * len(self.files)
@@ -214,12 +234,12 @@ class MainUI(QtWidgets.QMainWindow):
     def process(self):
         selected_files = self.selected_files
         if not selected_files:
-            print("Nothing to process.")
+            self.statusBar().showMessage("Nothing to process.")
             return
-        print('Processing')
+        self.statusBar().showMessage('Processing selected files...')
 
         QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
-        current_time = time()
+        start_time = perf_counter()
         action = self.actionbuttons_group.checkedButton().text()
         if action == 'Delete':
             func = self.delete_files
@@ -231,27 +251,26 @@ class MainUI(QtWidgets.QMainWindow):
         i = 0
         self.progress_bar.setMaximum(len(selected_files))
         for _ in func():
-            print(_)
             self.progress_bar.setValue(i := i+1)
 
         QtWidgets.QApplication.restoreOverrideCursor()
-        print(f"Process completed in : {time()-current_time:.3f}sec")  # :.3f replaces round(size, 2)
+        self.statusBar().showMessage(f"Process completed in : {perf_counter()-start_time:.3f}sec")
         self._set_files()
 
     def delete_files(self):
-        print('Deleting files')
+        self.statusBar().showMessage('Deleting selected files...')
         result = QtWidgets.QMessageBox.warning(self, "Delete warning", "Are you sure you want to permanently delete "
                                                                        "the selected files ?",
                                                QtWidgets.QMessageBox.Yes, QtWidgets.QMessageBox.Cancel)
         if result != QtWidgets.QMessageBox.Yes:
-            print("Canceled.")
+            self.statusBar().showMessage("Canceled files deletion.")
             return
         for file in self.selected_files:
-            file.unlink()
+            file.path_item.unlink()
             yield file
 
     def copy_files(self):
-        print('Copying files')
+        self.statusBar().showMessage('Copying selected files...')
         subfolder = self.subfolder_line.text()
         for file in self.selected_files:
             subfolder_path = file.path_item.parent / subfolder
@@ -262,7 +281,7 @@ class MainUI(QtWidgets.QMainWindow):
             yield file
 
     def move_files(self):
-        print('Moving files')
+        self.statusBar().showMessage('Moving selected files...')
         subfolder = self.subfolder_line.text()
         for file in self.selected_files:
             subfolder_path = file.path_item.parent / subfolder
