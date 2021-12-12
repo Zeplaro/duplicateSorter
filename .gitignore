@@ -4,4 +4,6 @@
 build
 dist
 .idea
+.idea/**
+*.old
 duplicatesorter.exe

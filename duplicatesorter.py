@@ -1,16 +1,30 @@
 # coding: utf-8
-from PyQt5 import QtWidgets, QtCore, QtGui
-import sys
-from os import path as ospath
-from pathlib import Path
-from shutil import copyfile
-import subprocess
-from functools import partial
-from time import time
-import platform
 
+import sys
+from PyQt5 import QtWidgets, QtCore, QtGui, uic
+from dataclasses import dataclass
+from functools import partial
+from pathlib import Path
+from shutil import copy2, move
+from time import perf_counter
+from subprocess import Popen
 
 qt_refresh = QtWidgets.QApplication.processEvents
+
+dark_palette = QtGui.QPalette()
+dark_palette.setColor(QtGui.QPalette.Base, QtGui.QColor(43, 43, 43))
+dark_palette.setColor(QtGui.QPalette.Window, QtGui.QColor(60, 63, 65))
+dark_palette.setColor(QtGui.QPalette.WindowText, QtGui.QColor(190, 190, 190))
+dark_palette.setColor(QtGui.QPalette.AlternateBase, QtGui.QColor(50, 53, 55))
+dark_palette.setColor(QtGui.QPalette.Text, QtGui.QColor(230, 230, 230))
+dark_palette.setColor(QtGui.QPalette.Button, QtGui.QColor(60, 63, 65))
+dark_palette.setColor(QtGui.QPalette.ButtonText, QtGui.QColor(200, 200, 200))
+dark_palette.setColor(QtGui.QPalette.Highlight, QtGui.QColor(80, 113, 135))
+dark_palette.setColor(QtGui.QPalette.Disabled, QtGui.QPalette.Highlight, QtGui.QColor(80, 80, 80))
+dark_palette.setColor(QtGui.QPalette.HighlightedText, QtCore.Qt.white)
+
+default_palette = QtGui.QPalette()
+default_palette.setColor(QtGui.QPalette.AlternateBase, QtGui.QColor(245, 245, 245))
 
 
 def launch_ui():
@@ -20,481 +34,373 @@ def launch_ui():
     sys.exit(app.exec_())
 
 
-def dark_palette():
-    QtWidgets.QApplication.setStyle("Fusion")
-    palette = QtGui.QPalette()
-    palette.setColor(QtGui.QPalette.Base, QtGui.QColor(43, 43, 43))
-    palette.setColor(QtGui.QPalette.Window, QtGui.QColor(60, 63, 65))
-    palette.setColor(QtGui.QPalette.WindowText, QtGui.QColor(190, 190, 190))
-    palette.setColor(QtGui.QPalette.AlternateBase, QtGui.QColor(50, 53, 55))
-    palette.setColor(QtGui.QPalette.Text, QtGui.QColor(230, 230, 230))
-    palette.setColor(QtGui.QPalette.Button, QtGui.QColor(60, 63, 65))
-    palette.setColor(QtGui.QPalette.ButtonText, QtGui.QColor(200, 200, 200))
-    palette.setColor(QtGui.QPalette.Highlight, QtGui.QColor(80, 113, 135))
-    palette.setColor(QtGui.QPalette.Disabled, QtGui.QPalette.Highlight, QtGui.QColor(80, 80, 80))
-    palette.setColor(QtGui.QPalette.HighlightedText, QtCore.Qt.white)
-    return palette
-
-
-def default_palette():
-    QtWidgets.QApplication.setStyle("Fusion")
-    palette = QtGui.QPalette()
-    palette.setColor(QtGui.QPalette.AlternateBase, QtGui.QColor(245, 245, 245))
-    return palette
-
-
 class MainUI(QtWidgets.QMainWindow):
     def __init__(self):
-        super().__init__()
-        self.data = {}
-        self.ext_data = {}
-        self.selected = set()
-        self.folder_path = None
-        self.extension_btns = []
-        self.ignore_btns = []
+        super(MainUI, self).__init__()
+        self.root_path: Path = Path.home()
+        self.files: [File, ] = []  # list of all files listed in the file_table view
+        self.extensions: [str, ] = []  # list of all extensions listed in the extension_list and ignored_list views
+        self.extension_states: [bool, ] = []  # list of state per extensions
+        self.ignored_states: [bool, ] = []  # list of state per ignored
+        self.selected_files: [File, ] = []  # list of selected/highlighted files from file_table view
 
-        self.ui_layout()
-        self.ui_connections()
-        self.setPalette(dark_palette())
+        # UI stuff
+        uic.loadUi('duplicateSorter.ui', self)
 
-        self.set_root_dir()
+        QtWidgets.QApplication.setStyle("Fusion")
+        self.setPalette(dark_palette)
 
-    def ui_layout(self):
-        main_splitter = QtWidgets.QSplitter(QtCore.Qt.Vertical)
-        self.setCentralWidget(main_splitter)
-        self.setGeometry(0, 0, 1500, 800)
-        self.setWindowTitle('Duplicate Sorter')
-        menu_bar = QtWidgets.QMenuBar()
-        self.setMenuBar(menu_bar)
-        view_menu = menu_bar.addMenu('View')
-        view_menu.addAction('Set default style', partial(self.setPalette, default_palette()))
-        view_menu.addAction('Set dark style', partial(self.setPalette, dark_palette()))
+        self.back_button = self.findChild(QtWidgets.QToolButton, 'back_button')
+        self.path_line = self.findChild(QtWidgets.QLineEdit, 'path_line')
+        self.path_line.setText(str(self.root_path))
+        self.subfolders_check = self.findChild(QtWidgets.QCheckBox, 'subfolders_check')
+        self.browse_button = self.findChild(QtWidgets.QPushButton, 'browse_button')
 
-        top_widget = QtWidgets.QWidget()
-        main_splitter.addWidget(top_widget)
-        top_layout = QtWidgets.QVBoxLayout()
-        top_widget.setLayout(top_layout)
-
-        browse_layout = QtWidgets.QHBoxLayout()
-        top_layout.addLayout(browse_layout)
-        self.parent_btn = QtWidgets.QToolButton()
-        browse_layout.addWidget(self.parent_btn)
-        self.parent_btn.setArrowType(QtCore.Qt.LeftArrow)
-        self.root_path = Path(f"{ospath.expanduser('~')}/Pictures")
-        self.browse_line = QtWidgets.QLineEdit(str(self.root_path))
-        browse_layout.addWidget(self.browse_line)
-        self.subfolders_check = QtWidgets.QCheckBox('Include subfolders')
-        browse_layout.addWidget(self.subfolders_check)
-        self.browse_button = QtWidgets.QPushButton('Browse')
-        browse_layout.addWidget(self.browse_button)
-
-        tree_view_layout = QtWidgets.QHBoxLayout()
-        top_layout.addLayout(tree_view_layout)
-        self.folder_tree = QtWidgets.QTreeView()
-        tree_view_layout.addWidget(self.folder_tree)
-        folder_model = QtWidgets.QFileSystemModel()
-        folder_model.setReadOnly(True)
-        folder_model.setFilter(QtCore.QDir.Dirs | QtCore.QDir.NoDotAndDotDot)
-        self.folder_tree.setModel(folder_model)
+        # folder tree
+        self.folder_tree = self.findChild(QtWidgets.QTreeView, 'folder_tree')
+        self.folder_tree.setModel(QtWidgets.QFileSystemModel())
+        self.folder_tree.model().setFilter(QtCore.QDir.Dirs | QtCore.QDir.NoDotAndDotDot)
         self.folder_tree.setAlternatingRowColors(True)
-        self.folder_tree.setAnimated(False)
-        self.folder_tree.setIndentation(20)
         self.folder_tree.setSortingEnabled(True)
         self.folder_tree.setColumnHidden(1, True)
         self.folder_tree.setColumnHidden(2, True)
         self.folder_tree.setColumnHidden(3, True)
-        self.folder_tree.setFixedWidth(300)
         self.folder_tree.setColumnWidth(0, 200)
         self.folder_tree.sortByColumn(0, QtCore.Qt.AscendingOrder)
 
-        self.view = QtWidgets.QTreeWidget()
-        tree_view_layout.addWidget(self.view)
-        self.view.setAlternatingRowColors(True)
-        self.view.setSortingEnabled(True)
-        self.view.setSelectionMode(QtWidgets.QAbstractItemView.ExtendedSelection)
-        self.view.setColumnCount(3)
-        self.view.setHeaderLabels(('Name', 'Type', 'Size'))
-        self.view.setColumnWidth(0, 400)
-        self.view.setIndentation(4)
-        self.view.sortByColumn(0, QtCore.Qt.AscendingOrder)
-        self.view.setMinimumHeight(300)
+        # tables splitter
+        tables_splitter = self.findChild(QtWidgets.QSplitter, 'tables_splitter')
+        tables_splitter.setSizes([1, 1000])  # Setting the splitter to minimum size on left part
 
-        bottom_widget = QtWidgets.QWidget()
-        main_splitter.addWidget(bottom_widget)
-        bottom_layout = QtWidgets.QVBoxLayout()
-        bottom_widget.setLayout(bottom_layout)
+        # file table
+        self.file_table = self.findChild(QtWidgets.QTableView, 'file_table')
+        model = FileModel(self)
+        self.file_table.setModel(model)
+        self.file_table.horizontalHeader().setSectionResizeMode(QtWidgets.QHeaderView.Stretch)
+        self.file_table.setAlternatingRowColors(True)
+        self.file_table.setSortingEnabled(True)
 
-        tools_layout = QtWidgets.QHBoxLayout()
-        bottom_layout.addLayout(tools_layout)
+        # main splitter
+        main_splitter = self.findChild(QtWidgets.QSplitter, 'main_splitter')
+        main_splitter.setSizes([1000, 1])  # Setting the splitter to minimum size on bottom part
 
-        extension_layout = QtWidgets.QVBoxLayout()
-        tools_layout.addLayout(extension_layout)
-        extension_box = QtWidgets.QGroupBox('Extensions')
-        extension_box.setFixedWidth(200)
-        extension_layout.addWidget(extension_box)
-        extension_box_layout = QtWidgets.QVBoxLayout()
-        extension_box_layout.setSpacing(0)
-        extension_box_layout.setContentsMargins(0, 0, 0, 0)
-        extension_box.setLayout(extension_box_layout)
+        # Extensions
+        self.extension_list = self.findChild(QtWidgets.QListView, 'extension_list')
+        self.extension_list.setModel(ExtensionModel(self, 'extension'))
+        self.allextension_button = self.findChild(QtWidgets.QPushButton, 'allextension_button')
+        self.noneextension_button = self.findChild(QtWidgets.QPushButton, 'noneextension_button')
+        # Ignored
+        self.ignored_list = self.findChild(QtWidgets.QListView, 'ignored_list')
+        self.ignored_list.setModel(ExtensionModel(self, 'ignored'))
+        self.allignored_button = self.findChild(QtWidgets.QPushButton, 'allignored_button')
+        self.noneignored_button = self.findChild(QtWidgets.QPushButton, 'noneignored_button')
 
-        scroll_area = QtWidgets.QScrollArea()
-        scroll_area.setWidgetResizable(True)
-        scroll_area.setFrameShape(QtWidgets.QFrame.NoFrame)
-        extension_box_layout.addWidget(scroll_area)
-        scroll_container = QtWidgets.QWidget()
-        scroll_area.setWidget(scroll_container)
-        self.sub_extension_layout = QtWidgets.QVBoxLayout()
-        scroll_container.setLayout(self.sub_extension_layout)
+        # infos
+        self.totalfiles_label = self.findChild(QtWidgets.QLabel, 'totalfiles_label')
+        self.selectedfiles_label = self.findChild(QtWidgets.QLabel, 'selectedfiles_label')
 
-        extension_btn_layout = QtWidgets.QHBoxLayout()
-        extension_layout.addLayout(extension_btn_layout)
-        self.all_extensions_button = QtWidgets.QPushButton('All')
-        extension_btn_layout.addWidget(self.all_extensions_button)
-        self.no_extensions_button = QtWidgets.QPushButton('None')
-        extension_btn_layout.addWidget(self.no_extensions_button)
+        # Actions
+        self.actionbuttons_group = self.findChild(QtWidgets.QButtonGroup, 'actionbuttons_group')
 
-        ignored_layout = QtWidgets.QVBoxLayout()
-        tools_layout.addLayout(ignored_layout)
-        ingnored_box = QtWidgets.QGroupBox('Ignored')
-        ingnored_box.setFixedWidth(200)
-        ignored_layout.addWidget(ingnored_box)
-        ignored_box_layout = QtWidgets.QVBoxLayout()
-        ignored_box_layout.setSpacing(0)
-        ignored_box_layout.setContentsMargins(0, 0, 0, 0)
-        ingnored_box.setLayout(ignored_box_layout)
+        # Process
+        self.refresh_check = self.findChild(QtWidgets.QCheckBox, 'refresh_check')
+        self.refresh_button = self.findChild(QtWidgets.QPushButton, 'refresh_button')
+        self.process_button = self.findChild(QtWidgets.QPushButton, 'process_button')
+        self.subfolder_line = self.findChild(QtWidgets.QLineEdit, 'subfolder_line')
+        self.progress_bar = self.findChild(QtWidgets.QProgressBar, 'progress_bar')
+        self.progress_bar.setValue(0)
 
-        scroll_area = QtWidgets.QScrollArea()
-        scroll_area.setWidgetResizable(True)
-        scroll_area.setFrameShape(QtWidgets.QFrame.NoFrame)
-        ignored_box_layout.addWidget(scroll_area)
-        scroll_container = QtWidgets.QWidget()
-        scroll_area.setWidget(scroll_container)
-        self.sub_ignored_layout = QtWidgets.QVBoxLayout()
-        scroll_container.setLayout(self.sub_ignored_layout)
+        self.ui_connections()
 
-        ignore_btn_layout = QtWidgets.QHBoxLayout()
-        ignored_layout.addLayout(ignore_btn_layout)
-        self.all_ignore_button = QtWidgets.QPushButton('All')
-        ignore_btn_layout.addWidget(self.all_ignore_button)
-        self.no_ignore_button = QtWidgets.QPushButton('None')
-        ignore_btn_layout.addWidget(self.no_ignore_button)
-
-        action_box = QtWidgets.QGroupBox('Actions')
-        tools_layout.addWidget(action_box)
-        action_layout = QtWidgets.QVBoxLayout()
-        action_box.setLayout(action_layout)
-        action_box.setFixedWidth(200)
-        self.action_button_group = QtWidgets.QButtonGroup()
-        for action in ('Delete', 'Copy', 'Move'):
-            action_button = QtWidgets.QRadioButton(action)
-            self.action_button_group.addButton(action_button)
-            action_layout.addWidget(action_button)
-            action_button.setChecked(True)
-        self.move_line = QtWidgets.QLineEdit('subfolder')
-        action_layout.addWidget(self.move_line)
-        self.move_line.setFixedWidth(175)
-
-        stats_layout = QtWidgets.QVBoxLayout()
-        tools_layout.addLayout(stats_layout)
-        self.total_label = QtWidgets.QLabel('Total files : 0')
-        self.total_label.setMargin(20)
-        stats_layout.addWidget(self.total_label)
-        self.selected_label = QtWidgets.QLabel('Selected files : 0 ~ 0 MB')
-        self.selected_label.setMargin(20)
-        stats_layout.addWidget(self.selected_label)
-
-        process_layout = QtWidgets.QVBoxLayout()
-        tools_layout.addLayout(process_layout)
-        self.refresh_checkbox = QtWidgets.QCheckBox('Auto refresh')
-        self.refresh_checkbox.setCheckState(2)
-        self.refresh_checkbox.setFixedHeight(20)
-        process_layout.addWidget(self.refresh_checkbox)
-        self.refresh_button = QtWidgets.QPushButton('Refresh')
-        self.refresh_button.setFixedHeight(35)
-        self.refresh_button.setFixedWidth(150)
-        process_layout.addWidget(self.refresh_button)
-        separator = QtWidgets.QFrame()
-        separator.setFrameShape(QtWidgets.QFrame.HLine)
-        separator.setStyleSheet("color: rgba(0, 0, 0, 0.2);")
-        separator.setLineWidth(1)
-        separator.setFixedHeight(20)
-        process_layout.addWidget(separator)
-        self.process_button = QtWidgets.QPushButton('Process')
-        self.process_button.setSizePolicy(QtWidgets.QSizePolicy.Fixed, QtWidgets.QSizePolicy.Expanding)
-        self.process_button.setMinimumHeight(50)
-        self.process_button.setFixedWidth(150)
-        process_layout.addWidget(self.process_button)
-
-        self.process_bar = QtWidgets.QProgressBar()
-        bottom_layout.addWidget(self.process_bar)
+        self.set_root_dir()
 
     def ui_connections(self):
-        self.folder_tree.clicked.connect(self.refresh_view)
-        self.folder_tree.doubleClicked.connect(self.set_children_folder)
+        self.back_button.clicked.connect(self.back_dir)
+        self.path_line.editingFinished.connect(self.set_root_dir)
+        self.subfolders_check.stateChanged.connect(self._set_files)
         self.browse_button.clicked.connect(self.browse)
-        self.browse_line.editingFinished.connect(self.set_root_dir)
-        self.view.doubleClicked.connect(self.open_path)
-        self.no_extensions_button.clicked.connect(partial(self.check_extensions, 0))
-        self.all_extensions_button.clicked.connect(partial(self.check_extensions, 2))
-        self.no_ignore_button.clicked.connect(partial(self.check_ignore, 0))
-        self.all_ignore_button.clicked.connect(partial(self.check_ignore, 2))
+        self.folder_tree.clicked.connect(self._set_files)
+        self.folder_tree.doubleClicked.connect(self.folder_tree_double_clicked)
+        self.folder_tree.activated.connect(self._set_files)
+        self.file_table.doubleClicked.connect(self.open_file_in_explorer)
+        self.allextension_button.clicked.connect(partial(self.all_none_buttons, 'extension', 'all'))
+        self.noneextension_button.clicked.connect(partial(self.all_none_buttons, 'extension', 'none'))
+        self.allignored_button.clicked.connect(partial(self.all_none_buttons, 'ignored', 'all'))
+        self.noneignored_button.clicked.connect(partial(self.all_none_buttons, 'ignored', 'none'))
+
+        self.refresh_button.clicked.connect(self.refresh)
         self.process_button.clicked.connect(self.process)
-        self.parent_btn.clicked.connect(self.set_parent_folder)
-        self.subfolders_check.clicked.connect(self.set_root_dir)
-        self.refresh_button.clicked.connect(self.populate_view)
 
-    def refresh_view(self):
-        if self.refresh_checkbox.isChecked():
-            self.populate_view()
-
-    def refresh_highlight(self):
-        if self.refresh_checkbox.isChecked():
-            self.highlight()
-
-    def set_root_dir(self):
-        QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
-        self.browse_line.setText(self.browse_line.text().replace('\\', '/'))
-        path = self.browse_line.text()
-        self.root_path = Path(path)
-        if self.root_path.exists():
-            model = self.folder_tree.model()
-            model.setRootPath(path)
-            self.folder_tree.setRootIndex(model.index(path))
-        self.refresh_view()
-        QtWidgets.QApplication.restoreOverrideCursor()
-
-    def progress(self):
-        prog = QtWidgets.QDialog(parent=self)
-        prog.setWindowTitle('Populating')
-        layout = QtWidgets.QVBoxLayout()
-        layout.setContentsMargins(20, 20, 20, 20)
-        prog.setLayout(layout)
-        label = QtWidgets.QLabel()
-        layout.addWidget(label)
-        return prog, label
-
-    def populate_view(self, *args):
-        QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
-        for file in self.selected:
-            for i in range(3):
-                self.data[file]['item'].setBackground(i, QtGui.QColor(1, 1, 1, 1))
-        self.selected = set()
-        self.view.clear()
-        data = {}
-        ext_data = {}
-        path = self.folder_tree.model().filePath(self.folder_tree.currentIndex())
-        if path:
-            self.folder_path = Path(path)
-        else:
-            self.folder_path = self.root_path
-        if self.subfolders_check.isChecked():
-            func = self.folder_path.rglob
-        else:
-            func = self.folder_path.glob
-
-        for file in func('*.*'):
-            item = QtWidgets.QTreeWidgetItem()
-            ext = file.suffix
-            size = ospath.getsize(str(file)) / (1024 * 1024)
-            data[str(file)] = {'file': file,
-                                     'name': file.stem.lower(),
-                                     'item': item,
-                                     'ext': ext,
-                                     'size': size,
-                                     }
-            if ext not in ext_data:
-                ext_data[ext] = set()
-            ext_data[ext].add(str(file))
-
-            item.setText(0, file.name)
-            item.setText(1, ext)
-            item.setText(2, str(round(size, 3))+' MB')
-            item.setTextAlignment(2, QtCore.Qt.AlignRight)
-            self.view.addTopLevelItem(item)
-            item.path = file
-
-        counts = (len(ext_data[ext]) for ext in ext_data)
-        self.total_label.setText(f'Total files : {sum(counts)}')
-
-        self.ext_data = ext_data
-        self.data = data
-        self.populate_extensions()
-        QtWidgets.QApplication.restoreOverrideCursor()
-        self.highlight()
-
-    def populate_extensions(self):
-        checked = {}
-        ignored = {}
-        for item in self.extension_btns:
-            if item.isChecked():
-                checked[item.text()] = 2
-            self.sub_extension_layout.removeWidget(item)
-            item.hide()
-            del item
-        for item in self.ignore_btns:
-            if item.isChecked():
-                ignored[item.text()] = 2
-            self.sub_ignored_layout.removeWidget(item)
-            item.hide()
-            del item
-
-        extension_btns = []
-        ignore_btns = []
-        for extension in sorted(self.ext_data, key=lambda x: x.lower()):
-            ext_btn = QtWidgets.QCheckBox(extension)
-            extension_btns.append(ext_btn)
-            self.sub_extension_layout.addWidget(ext_btn)
-            ext_btn.setCheckState(checked.get(extension, False))
-            ext_btn.clicked.connect(self.refresh_highlight)
-
-            ignore_btn = QtWidgets.QCheckBox(extension)
-            ignore_btns.append(ignore_btn)
-            self.sub_ignored_layout.addWidget(ignore_btn)
-            ignore_btn.setCheckState(ignored.get(extension, False))
-            ignore_btn.clicked.connect(self.refresh_highlight)
-            ignore_btn.clicked.connect(partial(self.lock_extension, ext_btn))
-
-        self.extension_btns = extension_btns
-        self.ignore_btns = ignore_btns
-
-    def highlight(self, *args):
-        QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
-        for file in self.selected:
-            for i in range(3):
-                self.data[file]['item'].setBackground(i, QtGui.QColor(1, 1, 1, 1))
-        selected = set()
-        checked_exts = set()
-        unchecked_exts = set()
-        for ext_btn, ignore_btn in zip(self.extension_btns, self.ignore_btns):
-            if ext_btn.isChecked():
-                checked_exts.add(ext_btn.text())
-            else:
-                if not ignore_btn.isChecked():
-                    unchecked_exts.add(ext_btn.text())
-
-        size = 0.0
-        data = self.data
-        for ext in checked_exts:
-            for checked_file in self.ext_data[ext]:
-                skip = False
-                name = data[checked_file]['name']
-                for unchecked_ext in unchecked_exts:
-                    for file in self.ext_data[unchecked_ext]:
-                        if self.data[file]['name'] == name:
-                            selected.add(checked_file)
-                            item = self.data[checked_file]['item']
-                            for i in range(3):
-                                item.setBackground(i, QtGui.QColor(255, 50, 90, 60))
-                            size += self.data[checked_file]['size']
-                            skip = True
-                            continue
-                    if skip:
-                        continue
-
-        disp_size = round(size, 2) if size < 1024 else round(size/1024, 2)
-        self.selected_label.setText(f"Selected files : {len(selected)} ~ {disp_size} {'MB' if size < 1024 else 'GB'}")
-        self.selected = selected
-        QtWidgets.QApplication.restoreOverrideCursor()
-
-    def set_parent_folder(self):
-        self.browse_line.setText(str(self.root_path.parent))
-        self.set_root_dir()
-
-    def set_children_folder(self, index):
-        if index:
-            self.browse_line.setText(self.folder_tree.model().filePath(index))
-            self.set_root_dir()
-
-    def check_extensions(self, state):
-        for ext in self.extension_btns:
-            ext.setCheckState(state)
-        self.refresh_highlight()
-
-    def check_ignore(self, state):
-        for i in self.ignore_btns:
-            i.setCheckState(state)
-        self.refresh_highlight()
-
-    @staticmethod
-    def lock_extension(ext_btn, state):
-        if not state:
-            ext_btn.setEnabled(True)
-        else:
-            ext_btn.setChecked(False)
-            ext_btn.setEnabled(False)
+    def back_dir(self):
+        self.set_root_dir(self.root_path.parent)
 
     def browse(self):
-        path = QtWidgets.QFileDialog.getExistingDirectory(directory=self.browse_line.text())
-        self.browse_line.setText(path)
+        path = QtWidgets.QFileDialog.getExistingDirectory(directory=self.path_line.text())
+        self.path_line.setText(path)
         self.set_root_dir()
 
-    def open_path(self, index):
-        print('Opening in explorer')
-        item = self.view.itemFromIndex(index)
-        if platform.system() == "Windows":
-            subprocess.Popen(f'explorer /select,"{item.path}"')
-        elif platform.system() == "Darwin":
-            subprocess.Popen(["open", item.path])
+    def _set_files(self):
+        if self.refresh_check.isChecked():
+            self.set_files()
+
+    def set_root_dir(self, path: Path = None):
+        QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
+        if path:
+            self.root_path = path
+            self.path_line.setText(str(path))
         else:
-            subprocess.Popen(["xdg-open", item.path])
+            self.root_path = Path(self.path_line.text())
+        if self.root_path.is_dir():
+            self.folder_tree.model().setRootPath(str(self.root_path))
+            self.folder_tree.setRootIndex(self.folder_tree.model().index(str(self.root_path)))
+            self._set_files()
+        QtWidgets.QApplication.restoreOverrideCursor()
+
+    def set_files(self):
+        self.statusBar().showMessage("Updating file list...")
+        QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
+        start_time = perf_counter()
+        file_path = Path(self.folder_tree.model().filePath(self.folder_tree.currentIndex()) or self.root_path)
+
+        # saves checked extensions and checked ignored to re set them latter
+        checked_extensions = [x for x, y in zip(self.extensions, self.extension_states) if y]
+        checked_ignored = [x for x, y in zip(self.extensions, self.ignored_states) if y]
+        self.files = get_files(file_path, self.subfolders_check.isChecked())
+        self.extensions = list(set(file.suffix for file in self.files))
+        # re sets the saved checked extensions and checked ignored
+        self.extension_states = [2 if x in checked_extensions else 0 for x in self.extensions]
+        self.ignored_states = [2 if x in checked_ignored else 0 for x in self.extensions]
+        self.selected_files = self.get_selected_files()
+
+        self.totalfiles_label.setText(f"Total Files : {len(self.files)}")
+        self.refresh_lists()
+        self.statusBar().showMessage(f"File list updated in : {perf_counter()-start_time:.3f}sec")
+        QtWidgets.QApplication.restoreOverrideCursor()
+
+    def get_selected_files(self):
+        QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
+        start_time = perf_counter()
+
+        selected = []
+        checked_extensions = [x for x, y in zip(self.extensions, self.extension_states) if y]
+        checked_ignored = [x for x, y in zip(self.extensions, self.ignored_states) if y]
+        stems = [file.stem for file in self.files if file.suffix not in checked_ignored]
+        stems_count = {file.stem: stems.count(file.stem) for file in self.files}
+        for file in self.files:
+            if file.suffix in checked_extensions:
+                if stems_count[file.stem] > 1:
+                    selected.append(file)
+
+        QtWidgets.QApplication.restoreOverrideCursor()
+        self.statusBar().showMessage(f"Updated selected files in : {perf_counter()-start_time:.3f}sec")
+        return selected
+
+    def folder_tree_double_clicked(self, index):
+        folder = Path(self.folder_tree.model().filePath(index))
+        self.set_root_dir(folder)
+
+    def open_file_in_explorer(self, index):
+        self.statusBar().showMessage('Opening file in explorer...')
+        file = self.files[index.row()]
+        Popen(f'explorer /select,"{file.path_item}"')
+
+    def all_none_buttons(self, list_type: str, button: str):
+        if list_type == 'extension':
+            if button == 'all':
+                self.extension_states = [2] * len(self.files)
+                self.ignored_states = [0] * len(self.files)
+            else:
+                self.extension_states = [0] * len(self.files)
+        else:
+            if button == 'all':
+                self.ignored_states = [2] * len(self.files)
+                self.extension_states = [0] * len(self.files)
+            else:
+                self.ignored_states = [0] * len(self.files)
+        self.selected_files = self.get_selected_files()
+        self.refresh_lists()
+
+    def set_selected_label(self):
+        size = sum(file.size for file in self.selected_files)
+        self.selectedfiles_label.setText(f"Selected Files : {len(self.selected_files)} ~ {size:.2f} MB")
+
+    def refresh_lists(self):
+        QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
+        self.file_table.model().layoutChanged.emit()
+        self.extension_list.model().layoutChanged.emit()
+        self.ignored_list.model().layoutChanged.emit()
+        self.set_selected_label()
+        QtWidgets.QApplication.restoreOverrideCursor()
+
+    def refresh(self):
+        QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
+        self.set_root_dir()
+        if not self.refresh_check.isChecked():  # force set_files if 'auto refresh' is off
+            self.set_files()
+        QtWidgets.QApplication.restoreOverrideCursor()
 
     def process(self):
-        if not self.selected:
-            print("Nothing to process.")
+        selected_files = self.selected_files
+        if not selected_files:
+            self.statusBar().showMessage("Nothing to process.")
             return
-        print('Processing')
-        QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
-        current_time = time()
-        action = self.action_button_group.checkedButton().text()
-        if action == 'Move':
-            self.move_files()
-        elif action == 'Delete':
-            self.delete_files()
-        else:
-            self.copy_files()
-        self.populate_view()
-        QtWidgets.QApplication.restoreOverrideCursor()
-        print(f"Process completed in : {round(time()-current_time, 3)}sec")
+        self.statusBar().showMessage('Processing selected files...')
 
-    def move_files(self):
-        print('Moving files')
-        subfolder = self.move_line.text()
-        self.process_bar.setMaximum(len(self.selected))
-        for i, file in enumerate(self.selected):
-            file = Path(file)
-            new_root = file.parent / subfolder
-            if not new_root.exists():
-                new_root.mkdir()
-            file.replace(new_root / file.name)
-            self.process_bar.setValue(i + 1)
+        QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
+        start_time = perf_counter()
+        action = self.actionbuttons_group.checkedButton().text()
+        if action == 'Delete':
+            func = self.delete_files
+        elif action == 'Copy':
+            func = self.copy_files
+        else:
+            func = self.move_files
+
+        i = 0
+        self.progress_bar.setMaximum(len(selected_files))
+        for _ in func():
+            self.progress_bar.setValue(i := i+1)
+
+        QtWidgets.QApplication.restoreOverrideCursor()
+        self.statusBar().showMessage(f"Process completed in : {perf_counter()-start_time:.3f}sec")
+        self._set_files()
 
     def delete_files(self):
-        print('Deleting files')
+        self.statusBar().showMessage('Deleting selected files...')
         result = QtWidgets.QMessageBox.warning(self, "Delete warning", "Are you sure you want to permanently delete "
                                                                        "the selected files ?",
                                                QtWidgets.QMessageBox.Yes, QtWidgets.QMessageBox.Cancel)
         if result != QtWidgets.QMessageBox.Yes:
-            print("Canceled.")
+            self.statusBar().showMessage("Canceled files deletion.")
             return
-        self.process_bar.setMaximum(len(self.selected))
-        for i, file in enumerate(self.selected):
-            file = Path(file)
-            if file.exists():
-                file.unlink()
-            self.process_bar.setValue(i + 1)
+        for file in self.selected_files:
+            file.path_item.unlink()
+            yield file
 
     def copy_files(self):
-        print('Copying files')
-        subfolder = self.move_line.text()
-        self.process_bar.setMaximum(len(self.selected))
-        for i, file in enumerate(self.selected):
-            file = Path(file)
-            new_root = file.parent / subfolder
-            if not new_root.exists():
-                new_root.mkdir()
-            new_path = new_root / file.name
-            copyfile(file, new_path)
-            self.process_bar.setValue(i + 1)
+        self.statusBar().showMessage('Copying selected files...')
+        subfolder = self.subfolder_line.text()
+        for file in self.selected_files:
+            subfolder_path = file.path_item.parent / subfolder
+            if not subfolder_path.exists():
+                subfolder_path.mkdir()
+            new_path = file.path_item.parent / subfolder_path / file.path_item.name
+            copy2(str(file.path_item), str(new_path))
+            yield file
+
+    def move_files(self):
+        self.statusBar().showMessage('Moving selected files...')
+        subfolder = self.subfolder_line.text()
+        for file in self.selected_files:
+            subfolder_path = file.path_item.parent / subfolder
+            if not subfolder_path.exists():
+                subfolder_path.mkdir()
+            new_path = file.path_item.parent / subfolder_path / file.path_item.name
+            move(str(file.path_item), str(new_path))
+            yield file
+
+
+class FileModel(QtCore.QAbstractTableModel):
+    def __init__(self, ui):
+        super(FileModel, self).__init__()
+        self.ui = ui
+
+    def rowCount(self, *args):
+        return len(self.ui.files)
+
+    def columnCount(self, *args):
+        return 3
+
+    def data(self, index, role=QtCore.Qt.DisplayRole):
+        row = index.row()
+        column = index.column()
+        if role == QtCore.Qt.DisplayRole:
+            if column == 0:
+                return self.ui.files[row].name
+            elif column == 1:
+                return self.ui.files[row].suffix
+            elif column == 2:
+                return f'{self.ui.files[row].size:.2f} MB'  # :.2f replaces round(size, 2)
+        elif role == QtCore.Qt.BackgroundRole:
+            if self.ui.files[index.row()] in self.ui.selected_files:
+                return QtGui.QColor(62, 118, 92)
+
+    def headerData(self, column, orientation, role=QtCore.Qt.DisplayRole):
+        if role == QtCore.Qt.DisplayRole:
+            if orientation == QtCore.Qt.Horizontal:
+                if column == 0:
+                    return "Name"
+                elif column == 1:
+                    return "Type"
+                elif column == 2:
+                    return "Size"
+
+    def flags(self, index):
+        return QtCore.Qt.ItemIsEnabled
+
+
+class ExtensionModel(QtCore.QAbstractListModel):
+    def __init__(self, ui, list_type):
+        super(ExtensionModel, self).__init__()
+        self.ui = ui
+        self.type = list_type
+
+    def rowCount(self, *args):
+        return len(self.ui.extensions)
+
+    def data(self, index, role=QtCore.Qt.DisplayRole):
+        if role == QtCore.Qt.DisplayRole:
+            return self.ui.extensions[index.row()] or 'None'
+        elif role == QtCore.Qt.CheckStateRole:
+            if self.type == 'extension':
+                return self.ui.extension_states[index.row()]
+            else:
+                return self.ui.ignored_states[index.row()]
+
+    def setData(self, index, value, role=QtCore.Qt.DisplayRole):
+        if role == QtCore.Qt.CheckStateRole:
+            if self.type == 'extension':
+                if value == 2:
+                    self.ui.ignored_states[index.row()] = 0
+                    self.ui.ignored_list.model().dataChanged.emit(index, index)
+                self.ui.extension_states[index.row()] = value
+            else:
+                if value == 2:
+                    self.ui.extension_states[index.row()] = 0
+                    self.ui.extension_list.model().dataChanged.emit(index, index)
+                self.ui.ignored_states[index.row()] = value
+            self.dataChanged.emit(index, index)
+            self.ui.selected_files = self.ui.get_selected_files()
+            self.ui.file_table.model().layoutChanged.emit()
+            self.ui.set_selected_label()
+            return True
+        return False
+
+    def flags(self, index):
+        return QtCore.Qt.ItemIsEnabled | QtCore.Qt.ItemIsUserCheckable
+
+
+@dataclass
+class File:
+    name: str
+    suffix: str
+    size: float
+    stem: str
+    path_item: Path
+
+
+def get_files(path, with_subfolders=False):
+    files = []
+    subfolders = []
+    for item in path.iterdir():
+        if item.is_file():
+            size = item.stat().st_size/(1024**2)
+            files.append(File(item.name, item.suffix, size, item.stem, item))
+        elif with_subfolders:
+            subfolders.append(item)
+    for item in subfolders:
+        files.extend(get_files(item, with_subfolders))
+    return files
 
 
 if __name__ == '__main__':
