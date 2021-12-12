@@ -259,7 +259,8 @@ class MainUI(QtWidgets.QMainWindow):
         i = 0
         self.progress_bar.setMaximum(len(selected_files))
         for _ in func():
-            self.progress_bar.setValue(i := i+1)
+            i += 1
+            self.progress_bar.setValue(i)
 
         QtWidgets.QApplication.restoreOverrideCursor()
         self.statusBar().showMessage(f"Process completed in : {perf_counter()-start_time:.3f}sec")
