@@ -44,12 +44,13 @@ class MainUI(QtWidgets.QMainWindow):
         self.ignored_states: [bool, ] = []  # list of state per ignored
         self.selected_files: [File, ] = []  # list of selected/highlighted files from file_table view
 
-        # UI stuff
+        # .ui file loading
         uic.loadUi('duplicateSorter.ui', self)
 
         QtWidgets.QApplication.setStyle("Fusion")
         self.setPalette(dark_palette)
         self.setWindowTitle('Duplicate Sorter')
+        self.setWindowIcon(QtGui.QIcon('duplicateSorter.ico'))
 
         self.back_button = self.findChild(QtWidgets.QToolButton, 'back_button')
         self.path_line = self.findChild(QtWidgets.QLineEdit, 'path_line')
