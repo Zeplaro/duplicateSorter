@@ -68,6 +68,10 @@ class MainUI(QtWidgets.QMainWindow):
         self.folder_tree.setColumnWidth(0, 200)
         self.folder_tree.sortByColumn(0, QtCore.Qt.AscendingOrder)
 
+        # tables splitter
+        tables_splitter = self.findChild(QtWidgets.QSplitter, 'tables_splitter')
+        tables_splitter.setSizes([1, 1000])  # Setting the splitter to minimum size on left part
+
         # file table
         self.file_table = self.findChild(QtWidgets.QTableView, 'file_table')
         model = FileModel(self)
@@ -75,6 +79,10 @@ class MainUI(QtWidgets.QMainWindow):
         self.file_table.horizontalHeader().setSectionResizeMode(QtWidgets.QHeaderView.Stretch)
         self.file_table.setAlternatingRowColors(True)
         self.file_table.setSortingEnabled(True)
+
+        # main splitter
+        main_splitter = self.findChild(QtWidgets.QSplitter, 'main_splitter')
+        main_splitter.setSizes([1000, 1])  # Setting the splitter to minimum size on bottom part
 
         # Extensions
         self.extension_list = self.findChild(QtWidgets.QListView, 'extension_list')
