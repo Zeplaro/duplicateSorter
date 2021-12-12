@@ -49,6 +49,7 @@ class MainUI(QtWidgets.QMainWindow):
 
         QtWidgets.QApplication.setStyle("Fusion")
         self.setPalette(dark_palette)
+        self.setWindowTitle('Duplicate Sorter')
 
         self.back_button = self.findChild(QtWidgets.QToolButton, 'back_button')
         self.path_line = self.findChild(QtWidgets.QLineEdit, 'path_line')
