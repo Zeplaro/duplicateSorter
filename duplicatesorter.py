@@ -204,8 +204,8 @@ class MainUI(QtWidgets.QMainWindow):
         file = self.files[index.row()]
         Popen(f'explorer /select,"{file.path_item}"')
 
-    def all_none_buttons(self, type: str, button: str):
-        if type == 'extension':
+    def all_none_buttons(self, list_type: str, button: str):
+        if list_type == 'extension':
             if button == 'all':
                 self.extension_states = [2] * len(self.files)
                 self.ignored_states = [0] * len(self.files)
@@ -340,10 +340,10 @@ class FileModel(QtCore.QAbstractTableModel):
 
 
 class ExtensionModel(QtCore.QAbstractListModel):
-    def __init__(self, ui, type):
+    def __init__(self, ui, list_type):
         super(ExtensionModel, self).__init__()
         self.ui = ui
-        self.type = type
+        self.type = list_type
 
     def rowCount(self, *args):
         return len(self.ui.extensions)
