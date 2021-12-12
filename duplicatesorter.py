@@ -37,7 +37,7 @@ def launch_ui():
 class MainUI(QtWidgets.QMainWindow):
     def __init__(self):
         super(MainUI, self).__init__()
-        self.root_path: Path = Path('C:/Users/robin/Photos/a trier')
+        self.root_path: Path = Path.home()
         self.files: [File, ] = []  # list of all files listed in the file_table view
         self.extensions: [str, ] = []  # list of all extensions listed in the extension_list and ignored_list views
         self.extension_states: [bool, ] = []  # list of state per extensions
