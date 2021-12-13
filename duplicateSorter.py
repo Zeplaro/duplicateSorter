@@ -9,8 +9,6 @@ from shutil import copy2, move
 from time import perf_counter
 from subprocess import Popen
 
-qt_refresh = QtWidgets.QApplication.processEvents
-
 dark_palette = QtGui.QPalette()
 dark_palette.setColor(QtGui.QPalette.Base, QtGui.QColor(43, 43, 43))
 dark_palette.setColor(QtGui.QPalette.Window, QtGui.QColor(60, 63, 65))
