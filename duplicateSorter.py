@@ -43,13 +43,13 @@ class MainUI(QtWidgets.QMainWindow):
         self.selected_files: [File, ] = []  # list of selected/highlighted files from file_table view
 
         # .ui file loading, fullpath needed for pyinstaller
-        uic.loadUi('D:/Robin/Work/Python/duplicateSorter/duplicateSorter.ui', self)
+        uic.loadUi('duplicateSorter.ui', self)
 
         QtWidgets.QApplication.setStyle("Fusion")
         self.setPalette(dark_palette)
         self.setWindowTitle('Duplicate Sorter')
         # icon fullpath needed for pyinstaller
-        self.setWindowIcon(QtGui.QIcon('D:/Robin/Work/Python/duplicateSorter/duplicateSorter.ico'))
+        self.setWindowIcon(QtGui.QIcon('duplicateSorter.ico'))
 
         self.back_button = self.findChild(QtWidgets.QToolButton, 'back_button')
         self.path_line = self.findChild(QtWidgets.QLineEdit, 'path_line')
