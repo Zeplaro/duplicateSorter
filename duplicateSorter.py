@@ -80,6 +80,7 @@ class MainUI(QtWidgets.QMainWindow):
         self.file_table.horizontalHeader().setSectionResizeMode(QtWidgets.QHeaderView.Stretch)
         self.file_table.setAlternatingRowColors(True)
         self.file_table.setSortingEnabled(True)
+        self.file_table.sortByColumn(0, QtCore.Qt.AscendingOrder)
 
         # main splitter
         main_splitter = self.findChild(QtWidgets.QSplitter, 'main_splitter')
@@ -167,6 +168,7 @@ class MainUI(QtWidgets.QMainWindow):
         checked_extensions = [x for x, y in zip(self.extensions, self.extension_states) if y]
         checked_ignored = [x for x, y in zip(self.extensions, self.ignored_states) if y]
         self.files = get_files(file_path, self.subfolders_check.isChecked())
+        self.sort_files()
         self.extensions = list(set(file.suffix for file in self.files))
         # re sets the saved checked extensions and checked ignored
         self.extension_states = [2 if x in checked_extensions else 0 for x in self.extensions]
@@ -177,6 +179,18 @@ class MainUI(QtWidgets.QMainWindow):
         self.refresh_lists()
         self.statusBar().showMessage(f"File list updated in : {perf_counter()-start_time:.3f}sec")
         QtWidgets.QApplication.restoreOverrideCursor()
+
+    def sort_files(self, column=None, order=None):
+        if column is None:
+            column = self.file_table.horizontalHeader().sortIndicatorSection()
+        if order is None:
+            order = self.file_table.horizontalHeader().sortIndicatorOrder()
+        if column == 0:
+            self.files.sort(key=lambda x: x.name, reverse=bool(order))
+        elif column == 1:
+            self.files.sort(key=lambda x: x.suffix, reverse=bool(order))
+        elif column == 2:
+            self.files.sort(key=lambda x: x.size, reverse=bool(order))
 
     def get_selected_files(self):
         QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
@@ -339,6 +353,10 @@ class FileModel(QtCore.QAbstractTableModel):
 
     def flags(self, index):
         return QtCore.Qt.ItemIsEnabled
+
+    def sort(self, column, order):
+        self.ui.sort_files(column, order)
+        self.layoutChanged.emit()
 
 
 class ExtensionModel(QtCore.QAbstractListModel):
